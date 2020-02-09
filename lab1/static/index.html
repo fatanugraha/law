@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="description" content="" />
+    <meta name="author" content="Mark Otto, Jacob Thornton, and Bootstrap contributors" />
+    <meta name="generator" content="Jekyll v3.8.6" />
+    <title>Album example · Bootstrap</title>
+
+    <link
+      rel="stylesheet"
+      href="/bootstrap.min.css"
+      integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh"
+      crossorigin="anonymous"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <h1 class="mt-5">GitHub Profile Checker</h1>
+      <div class="card">
+        <div class="card-body">
+          <form id="form">
+            <div class="row">
+              <div class="col">
+                <div class="form-group">
+                  <label for="username">Username</label>
+                  <input type="text" class="form-control" id="username" value="rust-lang" />
+                </div>
+              </div>
+              <div class="col">
+                <div class="form-group">
+                  <label for="repository">Repository Name</label>
+                  <input type="text" class="form-control" id="repository" value="rust" />
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col">
+                <button type="submit" class="btn btn-primary" id="submit">Get Info</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class="card mt-3" id="result" style="display: none">
+        <div class="card-body" id="result-body">
+          <div>
+            <a href="" id="link" target="_blank">
+              <h1 id="fullname">torvalds/linux</h1>
+            </a>
+            <p id="description">Linux kernel source tree</p>
+          </div>
+          <div>
+            <ul class="list-group list-group-horizontal">
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                Stars
+                <span class="badge badge-primary badge-pill ml-2" id="stars">14</span>
+              </li>
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                Forks
+                <span class="badge badge-primary badge-pill ml-2" id="forks">2</span>
+              </li>
+              <li class="list-group-item d-flex justify-content-between align-items-center">
+                Open Issues
+                <span class="badge badge-primary badge-pill ml-2" id="open-issues">1</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="card mt-3" id="error" style="display: none">
+        <div class="card-body">
+          <p class="mt-3">Error Detail:</p>
+          <p id="errormsg"></p>
+        </div>
+      </div>
+    </div>
+  </body>
+
+  <style>
+    #result-body {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+    }
+  </style>
+
+  <script>
+    function showResult(result) {
+      document.getElementById("result").style.display = "block";
+      document.getElementById("forks").innerHTML = result.forks_count;
+      document.getElementById("stars").innerHTML = result.stargazers_count;
+      document.getElementById("open-issues").innerHTML = result.open_issues_count;
+      document.getElementById("fullname").innerHTML = result.full_name;
+      document.getElementById("link").href = result.html_url;
+      document.getElementById("description").innerHTML = result.description;
+    }
+
+    function setLoading(status) {
+      const button = document.getElementById("submit");
+      button.disabled = status;
+      if (status) {
+        button.innerHTML = "Getting Info ...";
+      } else {
+        button.innerHTML = "Get Info";
+      }
+    }
+
+    function showError(error) {
+      document.getElementById("error").style.display = "block";
+      document.getElementById("errormsg").innerHTML = error;
+    }
+
+    async function getInfo(username, repo) {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/${username}/${repo}`, {
+          method: "GET",
+          mode: "cors",
+          cache: "no-cache",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          referrerPolicy: "no-referrer"
+        });
+        const { status, data, error } = await response.json();
+        if (status === "success") {
+          showResult(data);
+        } else {
+          showError(error);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function handleSubmit(e) {
+      e.preventDefault();
+      const username = document.getElementById("username").value;
+      const repository = document.getElementById("repository").value;
+      getInfo(username, repository);
+      return false;
+    }
+
+    document.getElementById("form").addEventListener("submit", handleSubmit);
+  </script>
+</html>
