@@ -4,7 +4,7 @@ import uuid
 import flask
 from flask import Flask
 
-from utils import FileTooLarge, stream_to_file
+from utils import FileTooLarge, stream_to_file, require_auth
 
 app = Flask(__name__)
 
@@ -14,6 +14,7 @@ MAX_FILE_SIZE = os.getenv("MAX_FILE_SIZE", 10 * 1024 * 1024)  # 10 MB
 
 
 @app.route('/files', methods=["PUT"])
+@require_auth
 def store_file():
     filename = flask.request.args.get('filename')
     if not filename:
@@ -32,6 +33,7 @@ def store_file():
 
 
 @app.route('/files/<path:path>')
+@require_auth
 def send_js(path):
     return flask.send_from_directory(STORAGE_DIR, path)
 

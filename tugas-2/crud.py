@@ -4,6 +4,7 @@ import sqlite3
 from flask import Flask, jsonify, request
 
 import database, repository
+from utils import require_auth
 
 app = Flask(__name__)
 
@@ -22,12 +23,14 @@ def document_not_found():
 
 
 @app.route('/documents', methods=["POST"])
+@require_auth
 def document_list():
     document = repository.create(request.get_json(force=True))
     return jsonify(dataclasses.asdict(document)), 201
 
 
 @app.route('/documents/<uuid:key>', methods=["GET", "DELETE", "PUT"])
+@require_auth
 def document_detail(key):
     key = str(key)
 

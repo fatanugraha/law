@@ -6,7 +6,7 @@ import subprocess
 import shutil
 import os
 
-from utils import stream_to_file, FileTooLarge
+from utils import stream_to_file, FileTooLarge, require_auth
 
 app = Flask(__name__)
 
@@ -16,6 +16,7 @@ MAX_FILE_SIZE = os.getenv("MAX_FILE_SIZE", 10 * 1024 * 1024)  # 10 MB
 
 
 @app.route('/gzip', methods=["POST"])
+@require_auth
 def compress_gzip():
     filename = flask.request.args.get('filename', 'file.bin')
     file_relpath = os.path.join(str(uuid.uuid4()), filename)
