@@ -1,0 +1,21 @@
+[package]
+name = "server-1"
+version = "0.1.0"
+authors = ["Fata Nugraha <fatanugraha@outlook.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.1"
+actix-multipart = "0.2.0"
+actix-web = "2.0.0"
+actix-rt = "1.0.0"
+actix-files = "0.2.1"
+reqwest = { version = "0.10", features = ["blocking"] }
+sanitize-filename = "0.2.1"
+uuid = { version = "0.4", features = ["v4"] }
+askama = "0.8"
+
+[build-dependencies]
+askama = "0.8"
