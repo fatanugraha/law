@@ -16,6 +16,8 @@ reqwest = { version = "0.10", features = ["blocking"] }
 sanitize-filename = "0.2.1"
 uuid = { version = "0.4", features = ["v4"] }
 askama = "0.8"
+log = "0.4.8"
+env_logger = "0.7.1"
 
 [build-dependencies]
 askama = "0.8"

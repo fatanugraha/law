@@ -1,3 +1,4 @@
+extern crate log;
 use actix_multipart::{Field, Multipart};
 use actix_web::{web, App, HttpResponse, HttpServer, Result};
 use askama::Template;
@@ -133,6 +134,7 @@ fn get_config() -> &'static Config {
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init();
     unsafe {
         CONFIG = Some(Config {
             upload_url: get_os_var("UPLOAD_URL"),
@@ -143,12 +145,13 @@ async fn main() -> std::io::Result<()> {
         });
     }
 
+    let port = std::env::var_os("PORT").unwrap_or("8081".into());
     HttpServer::new(|| {
         App::new()
             .route("/", web::get().to(index))
             .route("/upload", web::post().to(upload))
     })
-    .bind("127.0.0.1:8080")?
+    .bind(format!("0.0.0.0:{}", port.to_str().unwrap()))?
     .run()
     .await
 }

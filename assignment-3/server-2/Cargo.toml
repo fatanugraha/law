@@ -17,7 +17,7 @@ serde_json = "1.0"
 queryst = "1"
 threadpool = "1.7.1"
 lazy_static = "1.4.0"
-lapin = "0.33.1"
+lapin = "0.34.0"
 async-trait = "0.1.27"
 uuid = { version = "0.4", features = ["v4"] }
 log = "0.4.8"

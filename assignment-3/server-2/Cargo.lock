@@ -1069,13 +1069,14 @@ checksum = "a91d884b6667cd606bb5a69aa0c99ba811a115fc68915e7056ec08a46e93199a"
 
 [[package]]
 name = "lapin"
-version = "0.33.2"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b317fdae5fe34078df763e951f4ae3241a9b53a44dadf5b8d8870a018e4d19a9"
+checksum = "d54f9cbd21fa2244844664466050072a014e89fe98dcf9c948882d7a0d95ba32"
 dependencies = [
  "amq-protocol",
  "amq-protocol-codegen",
  "crossbeam-channel",
+ "futures-core",
  "log",
  "mio 0.7.0",
  "parking_lot",
