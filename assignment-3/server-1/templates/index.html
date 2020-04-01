@@ -1,6 +1,9 @@
-<html>
-  <form action="/upload" method="post" enctype="multipart/form-data">
-    <input type="file" name="file" /><br /><br />
-    <input type="submit" value="Submit" />
-  </form>
-</html>
+{% extends "base.html" %} {% block card_title %} File Compression Service {% endblock %} {% block
+card_body %}
+<form action="/upload" method="post" enctype="multipart/form-data">
+  <input type="file" name="file" id="file" style="float: left; margin-bottom: 1rem;" />
+  <button class="mt-3 btn btn-primary btn-block" type="submit" id="submit">
+    Upload and Compress
+  </button>
+</form>
+{% endblock %}

@@ -1,11 +1,39 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Actix web</title>
-  </head>
-  <body>
-    <h1>Hi, {{ routing_key }}!</h1>
-    <p></p>
-  </body>
-</html>
+{% extends "base.html" %} {% block card_title %} File Compression Service {% endblock %} {% block
+card_body %}
+<div id="progress">
+  <p id="indicator">Compressing... (<span id="val">0%</span>)</p>
+</div>
+{% endblock %} {% block script %}
+
+<script src="https://cdn.jsdelivr.net/npm/stomp-websocket-js@1.0.0/lib/stomp.js"></script>
+<script>
+  var ws = new WebSocket("{{ config.ws_url }}");
+  var client = Stomp.over(ws);
+
+  $("#result").hide();
+
+  var on_connect = function() {
+    id = client.subscribe("/queue/{{routing_key}}", function(m) {
+      let val = m.body;
+      $("#val").html(`${val}%`);
+
+      if (val === "100") {
+        $("#indicator").html("Done!");
+      }
+    });
+  };
+
+  var on_error = function() {
+    console.log("error");
+  };
+
+  // ohmygod why
+  client.connect(
+    "{{config.username}}",
+    "{{config.password}}",
+    on_connect,
+    on_error,
+    "{{ config.vhost }}"
+  );
+</script>
+{% endblock %}

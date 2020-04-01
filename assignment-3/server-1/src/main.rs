@@ -1,4 +1,3 @@
-use actix_files::NamedFile;
 use actix_multipart::{Field, Multipart};
 use actix_web::{web, App, HttpResponse, HttpServer, Result};
 use askama::Template;
@@ -10,10 +9,21 @@ use std::io::Write;
 use std::path::Path;
 use uuid::Uuid;
 
+struct Config {
+    upload_url: String,
+    ws_url: String,
+    vhost: String,
+    password: String,
+    username: String,
+}
+
+static mut CONFIG: Option<Config> = None;
+
 #[derive(Template)]
-#[template(path = "upload-progress.html")]
+#[template(path = "upload-progress.html", escape = "none")]
 struct SuccessUploadTemplate<'a> {
     routing_key: &'a str,
+    config: &'a Config,
 }
 
 #[derive(Template)]
@@ -21,6 +31,10 @@ struct SuccessUploadTemplate<'a> {
 struct ErrorUploadTemplate<'a> {
     reason: &'a str,
 }
+
+#[derive(Template)]
+#[template(path = "index.html")]
+struct IndexTemplate {}
 
 fn template_response(template: impl Template) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
@@ -73,8 +87,13 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse> {
 
         let cloned_routing_key = routing_key.clone();
         let res = web::block(move || {
+            let url: String;
+            unsafe {
+                url = CONFIG.as_ref().unwrap().upload_url.to_owned();
+            }
+
             let res = Client::new()
-                .post("http://localhost:8081/compress")
+                .post(&url)
                 .query(&[("filename", filename)])
                 .header("X-ROUTING-KEY", cloned_routing_key)
                 .body(Body::from(f))
@@ -87,6 +106,7 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse> {
         return match res {
             Ok(_) => template_response(SuccessUploadTemplate {
                 routing_key: &routing_key,
+                config: get_config(),
             }),
             Err(e) => template_response(ErrorUploadTemplate {
                 reason: &format!("{}", e),
@@ -99,12 +119,30 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse> {
     })
 }
 
-async fn index() -> Result<NamedFile> {
-    Ok(NamedFile::open("templates/index.html")?)
+async fn index() -> Result<HttpResponse> {
+    template_response(IndexTemplate {})
+}
+
+fn get_os_var(key: &str) -> String {
+    std::env::var_os(key).unwrap().to_str().unwrap().to_owned()
+}
+
+fn get_config() -> &'static Config {
+    unsafe { (&CONFIG).as_ref().unwrap() }
 }
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
+    unsafe {
+        CONFIG = Some(Config {
+            upload_url: get_os_var("UPLOAD_URL"),
+            vhost: get_os_var("VHOST"),
+            ws_url: get_os_var("WS_URL"),
+            username: get_os_var("RABBITMQ_USERNAME"),
+            password: get_os_var("RABBITMQ_PASSWORD"),
+        });
+    }
+
     HttpServer::new(|| {
         App::new()
             .route("/", web::get().to(index))

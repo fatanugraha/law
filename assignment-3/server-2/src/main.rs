@@ -26,7 +26,6 @@ use uuid::Uuid;
 
 static mut SEND_CHANNEL: Option<Arc<Mutex<Sender<CompressionJob>>>> = None;
 
-static N_WORKERS: usize = 4;
 static TEMP_BASE_DIR: &str = "./tmp";
 static RESULT_BASE_DIR: &str = "./results";
 static CHUNK_SIZE: usize = 0x10000; // 64kB
@@ -72,7 +71,13 @@ impl RabbitMQ {
         channel
             .queue_declare(
                 &self.routing_key,
-                QueueDeclareOptions::default(),
+                QueueDeclareOptions {
+                    durable: true,
+                    auto_delete: false,
+                    exclusive: false,
+                    nowait: false,
+                    passive: false,
+                },
                 FieldTable::default(),
             )
             .await
@@ -96,9 +101,6 @@ impl RabbitMQ {
 #[async_trait]
 impl ProgressPublisher for RabbitMQ {
     async fn publish_progress(&self, progress: &u8) {
-        let mut payload: Vec<u8> = Vec::with_capacity(1);
-        payload.push(*progress);
-
         self.channel
             .as_ref()
             .unwrap()
@@ -106,7 +108,7 @@ impl ProgressPublisher for RabbitMQ {
                 &self.exchange,
                 &self.routing_key,
                 BasicPublishOptions::default(),
-                payload,
+                progress.to_string().into_bytes(),
                 BasicProperties::default(),
             )
             .await
@@ -221,7 +223,7 @@ impl CompressionJob {
 
             // report compression progress
             // this should not block but whatever
-            let progress = (nread * 10 / filesize) as u8;
+            let progress = ((nread * 10 / filesize) * 10) as u8;
             if last_reported != progress {
                 last_reported = progress;
                 publisher.publish_progress(&progress).await;
@@ -231,7 +233,10 @@ impl CompressionJob {
                 break;
             }
         }
-        publisher.publish_progress(&(100 as u8)).await;
+
+        if last_reported != 100 {
+            publisher.publish_progress(&(100 as u8)).await;
+        }
         info!("compressing: {} done", &self.id);
 
         self.file.unlink().await;
@@ -324,6 +329,12 @@ async fn main() -> std::io::Result<()> {
     let port = std::env::var_os("PORT").unwrap_or("8081".into());
     let amqp_addr = std::env::var_os("AMQP_ADDR").unwrap();
     let amqp_exchange = std::env::var_os("AMQP_EXCHANGE").unwrap();
+    let n_workers: usize = std::env::var_os("N_WORKERS")
+        .unwrap_or("4".into())
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
 
     // initialize channel
     let (tx, rx) = channel();
@@ -333,10 +344,13 @@ async fn main() -> std::io::Result<()> {
 
     // master worker thread
     std::thread::spawn(move || {
-        let pool = ThreadPool::new(N_WORKERS);
+        let pool = ThreadPool::new(n_workers);
+        info!("Starting {} workers for compression", n_workers);
 
         loop {
             let job = rx.recv().unwrap();
+            info!("Received job {}", &job.id);
+
             let addr = amqp_addr.to_str().unwrap().to_owned();
             let exchange = amqp_exchange.to_str().unwrap().to_owned();
             pool.execute(move || {
@@ -350,11 +364,8 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
-    let connstr = format!("0.0.0.0:{}", port.to_str().unwrap());
-
-    println!("listening on {}", connstr);
     HttpServer::new(|| App::new().route("/compress", web::post().to(compress)))
-        .bind(connstr)?
+        .bind(format!("0.0.0.0:{}", port.to_str().unwrap()))?
         .run()
         .await
 }
