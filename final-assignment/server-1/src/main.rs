@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use warp::Filter;
 
-use futures;
 use lapin::{options::*, types::FieldTable, BasicProperties};
 use serde::Serialize;
 use std::sync::Arc;
@@ -42,9 +41,8 @@ struct DownloadProgress<'a> {
 
 #[derive(Serialize)]
 struct DownloadMessage<'a> {
-    url: &'a str,
+    urls: &'a [&'a str],
     task_id: &'a str,
-    job_id: u8,
 }
 
 static FILE_NUM: u32 = 10;
@@ -81,22 +79,19 @@ async fn reply_download_progress(
     let download_exchange_name = format!("{}-download-queue", amqp.prefix);
     let download_queue_name = format!("{}.file-urls", amqp.prefix);
 
-    let mut promises = vec![];
-    for (i, url) in template.files.iter().enumerate() {
-        let payload = DownloadMessage {
-            url: &url,
-            task_id: &task_id,
-            job_id: i as u8,
-        };
-        promises.push(chan.basic_publish(
-            &download_exchange_name,
-            &download_queue_name,
-            BasicPublishOptions::default(),
-            serde_json::to_vec(&payload).unwrap(),
-            BasicProperties::default(),
-        ))
-    }
-    futures::future::join_all(promises).await;
+    let payload = DownloadMessage {
+        urls: template.files.as_slice(),
+        task_id: &task_id,
+    };
+    chan.basic_publish(
+        &download_exchange_name,
+        &download_queue_name,
+        BasicPublishOptions::default(),
+        serde_json::to_vec(&payload).unwrap(),
+        BasicProperties::default(),
+    )
+    .await
+    .unwrap();
 
     let progress_exchange_name = format!("{}-progress", amqp.prefix);
     let progress_queue_name = format!("{}.progress.{}", amqp.prefix, task_id);

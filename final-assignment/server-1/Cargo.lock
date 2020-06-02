@@ -1486,7 +1486,6 @@ dependencies = [
  "askama",
  "envconfig",
  "envconfig_derive",
- "futures",
  "lapin",
  "serde",
  "serde_json",
