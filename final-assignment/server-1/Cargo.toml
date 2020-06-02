@@ -14,3 +14,7 @@ envconfig = "0.8.0"
 envconfig_derive = "0.8.0"
 lapin = "1.0.0"
 tokio-amqp = "0.1.0"
+serde = "1.0"
+serde_json = "1.0"
+futures = "0.3.4"
+uuid = { version = "0.8", features = ["serde", "v4"] }

@@ -4,10 +4,14 @@ extern crate envconfig;
 
 use askama::Template;
 use std::collections::HashMap;
-use warp::Filter; // bring trait in scope
+use uuid::Uuid;
+use warp::Filter;
 
-use lapin::{options::*, types::FieldTable, Connection, ConnectionProperties};
-use tokio_amqp::*;
+use futures;
+use lapin::{options::*, types::FieldTable, BasicProperties};
+use serde::Serialize;
+use std::sync::Arc;
+mod amqp;
 
 use envconfig::Envconfig;
 
@@ -33,6 +37,14 @@ struct DownloadForm<'a> {
 #[template(path = "progress.html")]
 struct DownloadProgress<'a> {
     files: Vec<&'a str>,
+    task_id: &'a str,
+}
+
+#[derive(Serialize)]
+struct DownloadMessage<'a> {
+    url: &'a str,
+    task_id: &'a str,
+    job_id: u8,
 }
 
 static FILE_NUM: u32 = 10;
@@ -49,9 +61,14 @@ fn reply_download_form() -> impl warp::reply::Reply {
 
 async fn reply_download_progress(
     form: HashMap<String, String>,
-    channel: lapin::Channel
+    amqp: Arc<amqp::AMQP>,
 ) -> Result<impl warp::reply::Reply, std::convert::Infallible> {
-    let mut template = DownloadProgress { files: vec![] };
+    let task_id = format!("{}", Uuid::new_v4().to_hyphenated());
+
+    let mut template = DownloadProgress {
+        files: vec![],
+        task_id: &task_id,
+    };
     for i in 0..FILE_NUM {
         if let Some(file_url) = form.get(&format!("file-{}", i)) {
             template.files.push(file_url)
@@ -60,18 +77,36 @@ async fn reply_download_progress(
         }
     }
 
+    let chan = amqp.create_channel().await;
+    let exchange_name = format!("{}-download-queue", amqp.prefix);
+    let queue_name = format!("{}-file-urls", amqp.prefix);
+
+    let mut promises = vec![];
+    for (i, url) in template.files.iter().enumerate() {
+        let payload = DownloadMessage {
+            url: &url,
+            task_id: &task_id,
+            job_id: i as u8,
+        };
+        promises.push(chan.basic_publish(
+            &exchange_name,
+            &queue_name,
+            BasicPublishOptions::default(),
+            serde_json::to_vec(&payload).unwrap(),
+            BasicProperties::default(),
+        ))
+    }
+    futures::future::join_all(promises).await;
+
     Ok(warp::reply::html(template.render().unwrap()))
 }
 
-async fn get_amqp_channel(addr: &str, prefix: &str) -> lapin::Channel {
-    let conn = Connection::connect(addr, ConnectionProperties::default().with_tokio())
-        .await
-        .unwrap();
+async fn ensure_queue(rabbitmq: &amqp::AMQP) {
+    let channel = rabbitmq.create_channel().await;
 
-    let exchange_name = format!("{}-download-queue", prefix);
-    let queue_name = "file-urls";
+    let exchange_name = format!("{}-download-queue", rabbitmq.prefix);
+    let queue_name = format!("{}-file-urls", rabbitmq.prefix);
 
-    let channel = conn.create_channel().await.unwrap();
     channel
         .exchange_declare(
             &exchange_name,
@@ -82,11 +117,6 @@ async fn get_amqp_channel(addr: &str, prefix: &str) -> lapin::Channel {
         .await
         .unwrap();
 
-    let mut args = FieldTable::default();
-    args.insert(
-        "x-message-ttl".into(),
-        lapin::types::AMQPValue::LongString("60000".into()),
-    );
     channel
         .queue_declare(
             &queue_name,
@@ -97,7 +127,7 @@ async fn get_amqp_channel(addr: &str, prefix: &str) -> lapin::Channel {
                 nowait: false,
                 passive: false,
             },
-            args,
+            FieldTable::default(),
         )
         .await
         .unwrap();
@@ -112,21 +142,22 @@ async fn get_amqp_channel(addr: &str, prefix: &str) -> lapin::Channel {
         )
         .await
         .unwrap();
-
-    channel
 }
 
-fn with_channel(
-    channel: lapin::Channel,
-) -> impl Filter<Extract = (lapin::Channel,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || channel.clone())
+fn with_rabbitmq(
+    amqp: Arc<amqp::AMQP>,
+) -> impl Filter<Extract = (Arc<amqp::AMQP>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || amqp.clone())
 }
 
 #[tokio::main]
 async fn main() {
     let config = Config::init().unwrap();
 
-    let channel = get_amqp_channel(&config.amqp_addr, &config.amqp_prefix).await;
+    let amqp = amqp::AMQP::init(&config.amqp_addr, &config.amqp_prefix).await;
+    ensure_queue(&amqp).await;
+
+    let rabbitmq = Arc::new(amqp);
 
     let download_form = warp::get()
         .and(warp::filters::path::end())
@@ -135,9 +166,11 @@ async fn main() {
     let process_form = warp::post()
         .and(warp::filters::path::end())
         .and(warp::body::form())
-        .and(with_channel(channel))
+        .and(with_rabbitmq(rabbitmq))
         .and_then(reply_download_progress);
 
     let filters = download_form.or(process_form);
+
+    println!("Listened on :{}", config.port);
     warp::serve(filters).run(([0, 0, 0, 0], config.port)).await;
 }
