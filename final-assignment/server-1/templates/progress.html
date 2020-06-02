@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Download Progress{% endblock %}
+
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.1.4/sockjs.min.js"></script>
+{% endblock %}
+
+{% block body %}
+<style>
+  table:not(.horizontal) th:nth-child(1),
+  table:not(.horizontal) td:nth-child(1) {
+    flex: 8 0 0%;
+  }
+</style>
+<div class="col-sm-12 col-md-8 col-md-offset-2">
+<table style="max-height: unset;">
+  <caption>Download Progress</caption>
+  <thead>
+    <tr>
+      <th>URL</th>
+      <th>Download</th>
+      <th>Kompresi</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for file in files %}
+    <tr>
+      <td data-label="URL">
+        {{file}}
+      </td>
+      <td data-label="Download" id="download-{{loop.index}}">
+        0%
+      </td>
+      <td data-label="Kompresi" id="compress-{{loop.index}}">
+        0%
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
