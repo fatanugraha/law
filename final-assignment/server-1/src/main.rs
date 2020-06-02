@@ -78,8 +78,8 @@ async fn reply_download_progress(
     }
 
     let chan = amqp.create_channel().await;
-    let exchange_name = format!("{}-download-queue", amqp.prefix);
-    let queue_name = format!("{}-file-urls", amqp.prefix);
+    let download_exchange_name = format!("{}-download-queue", amqp.prefix);
+    let download_queue_name = format!("{}.file-urls", amqp.prefix);
 
     let mut promises = vec![];
     for (i, url) in template.files.iter().enumerate() {
@@ -89,14 +89,53 @@ async fn reply_download_progress(
             job_id: i as u8,
         };
         promises.push(chan.basic_publish(
-            &exchange_name,
-            &queue_name,
+            &download_exchange_name,
+            &download_queue_name,
             BasicPublishOptions::default(),
             serde_json::to_vec(&payload).unwrap(),
             BasicProperties::default(),
         ))
     }
     futures::future::join_all(promises).await;
+
+    let progress_exchange_name = format!("{}-progress", amqp.prefix);
+    let progress_queue_name = format!("{}.progress.{}", amqp.prefix, task_id);
+    let mut args = FieldTable::default();
+    args.insert("x-expires".into(), 1800000.into()); // TTL: 30mins
+    chan.exchange_declare(
+        &progress_exchange_name,
+        lapin::ExchangeKind::Topic,
+        ExchangeDeclareOptions::default(),
+        args,
+    )
+    .await
+    .unwrap();
+
+    let mut args = FieldTable::default();
+    args.insert("x-message-ttl".into(), 60000.into()); // TTL: 60secs
+    chan.queue_declare(
+        &progress_queue_name,
+        QueueDeclareOptions {
+            durable: true,
+            auto_delete: false,
+            exclusive: false,
+            nowait: false,
+            passive: false,
+        },
+        args,
+    )
+    .await
+    .unwrap();
+
+    chan.queue_bind(
+        &progress_queue_name,
+        &progress_exchange_name,
+        &progress_queue_name,
+        QueueBindOptions::default(),
+        FieldTable::default(),
+    )
+    .await
+    .unwrap();
 
     Ok(warp::reply::html(template.render().unwrap()))
 }
@@ -105,7 +144,7 @@ async fn ensure_queue(rabbitmq: &amqp::AMQP) {
     let channel = rabbitmq.create_channel().await;
 
     let exchange_name = format!("{}-download-queue", rabbitmq.prefix);
-    let queue_name = format!("{}-file-urls", rabbitmq.prefix);
+    let queue_name = format!("{}.file-urls", rabbitmq.prefix);
 
     channel
         .exchange_declare(
