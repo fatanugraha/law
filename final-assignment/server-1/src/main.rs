@@ -113,16 +113,16 @@ async fn reply_download_progress(
 
     let mut args = FieldTable::default();
     args.insert("x-message-ttl".into(), 60000.into()); // TTL: 60secs
-    chan.queue_declare(
+    chan.queue_declare(&progress_queue_name, QueueDeclareOptions::default(), args)
+        .await
+        .unwrap();
+
+    chan.queue_bind(
         &progress_queue_name,
-        QueueDeclareOptions {
-            durable: true,
-            auto_delete: false,
-            exclusive: false,
-            nowait: false,
-            passive: false,
-        },
-        args,
+        &progress_exchange_name,
+        &format!("{}.time", &amqp.prefix),
+        QueueBindOptions::default(),
+        FieldTable::default(),
     )
     .await
     .unwrap();
@@ -159,13 +159,7 @@ async fn ensure_queue(rabbitmq: &amqp::AMQP) {
     channel
         .queue_declare(
             &queue_name,
-            QueueDeclareOptions {
-                durable: true,
-                auto_delete: false,
-                exclusive: false,
-                nowait: false,
-                passive: false,
-            },
+            QueueDeclareOptions::default(),
             FieldTable::default(),
         )
         .await
