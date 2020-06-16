@@ -36,7 +36,7 @@ async fn main() {
     .unwrap();
 
     let channel = conn.create_channel().await.unwrap();
-    let exchange_name = format!("{}-progress", &config.amqp_prefix);
+    let exchange_name = format!("{}_TOPIC", &config.amqp_prefix);
     let routing_key = format!("{}.time", &config.amqp_prefix);
 
     let mut payload = Payload {

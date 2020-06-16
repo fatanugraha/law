@@ -14,13 +14,19 @@ mod amqp;
 
 use envconfig::Envconfig;
 
-#[derive(Envconfig)]
+#[derive(Envconfig, Clone)]
 struct Config {
     #[envconfig(from = "AMQP_ADDR", default = "amqp://127.0.0.1:5672//")]
     pub amqp_addr: String,
 
     #[envconfig(from = "AMQP_PREFIX", default = "1606862753")]
     pub amqp_prefix: String,
+
+    #[envconfig(from = "WS_URL", default = "http://152.118.148.95:15674/stomp")]
+    pub ws_url: String,
+
+    #[envconfig(from = "WS_NAMESPACE", default = "0806444524")]
+    pub ws_namespace: String,
 
     #[envconfig(from = "PORT", default = "8000")]
     pub port: u16,
@@ -37,6 +43,7 @@ struct DownloadForm<'a> {
 struct DownloadProgress<'a> {
     files: Vec<&'a str>,
     task_id: &'a str,
+    config: Config,
 }
 
 #[derive(Serialize)]
@@ -50,7 +57,7 @@ static FILE_NUM: u32 = 10;
 fn reply_download_form() -> impl warp::reply::Reply {
     let mut vec = Vec::new();
     for _ in 0..FILE_NUM {
-        vec.push("http://yeay.xyz/robot.txt")
+        vec.push("https://unsplash.com/photos/Eo_OJXgi_P8/download?force=true")
     }
 
     let form = DownloadForm { files: vec };
@@ -60,12 +67,14 @@ fn reply_download_form() -> impl warp::reply::Reply {
 async fn reply_download_progress(
     form: HashMap<String, String>,
     amqp: Arc<amqp::AMQP>,
+    config: Config,
 ) -> Result<impl warp::reply::Reply, std::convert::Infallible> {
     let task_id = format!("{}", Uuid::new_v4().to_hyphenated());
 
     let mut template = DownloadProgress {
         files: vec![],
         task_id: &task_id,
+        config,
     };
     for i in 0..FILE_NUM {
         if let Some(file_url) = form.get(&format!("file-{}", i)) {
@@ -76,7 +85,7 @@ async fn reply_download_progress(
     }
 
     let chan = amqp.create_channel().await;
-    let download_exchange_name = format!("{}-download-queue", amqp.prefix);
+    let download_exchange_name = format!("{}_DIRECT", amqp.prefix);
     let download_queue_name = format!("{}.file-urls", amqp.prefix);
 
     let payload = DownloadMessage {
@@ -93,52 +102,13 @@ async fn reply_download_progress(
     .await
     .unwrap();
 
-    let progress_exchange_name = format!("{}-progress", amqp.prefix);
-    let progress_queue_name = format!("{}.progress.{}", amqp.prefix, task_id);
-    let mut args = FieldTable::default();
-    args.insert("x-expires".into(), 1800000.into()); // TTL: 30mins
-    chan.exchange_declare(
-        &progress_exchange_name,
-        lapin::ExchangeKind::Topic,
-        ExchangeDeclareOptions::default(),
-        args,
-    )
-    .await
-    .unwrap();
-
-    let mut args = FieldTable::default();
-    args.insert("x-message-ttl".into(), 60000.into()); // TTL: 60secs
-    chan.queue_declare(&progress_queue_name, QueueDeclareOptions::default(), args)
-        .await
-        .unwrap();
-
-    chan.queue_bind(
-        &progress_queue_name,
-        &progress_exchange_name,
-        &format!("{}.time", &amqp.prefix),
-        QueueBindOptions::default(),
-        FieldTable::default(),
-    )
-    .await
-    .unwrap();
-
-    chan.queue_bind(
-        &progress_queue_name,
-        &progress_exchange_name,
-        &progress_queue_name,
-        QueueBindOptions::default(),
-        FieldTable::default(),
-    )
-    .await
-    .unwrap();
-
     Ok(warp::reply::html(template.render().unwrap()))
 }
 
 async fn ensure_queue(rabbitmq: &amqp::AMQP) {
     let channel = rabbitmq.create_channel().await;
 
-    let exchange_name = format!("{}-download-queue", rabbitmq.prefix);
+    let exchange_name = format!("{}_DIRECT", rabbitmq.prefix);
     let queue_name = format!("{}.file-urls", rabbitmq.prefix);
 
     channel
@@ -178,6 +148,12 @@ fn with_rabbitmq(
     warp::any().map(move || amqp.clone())
 }
 
+fn with_config(
+    config: Config,
+) -> impl Filter<Extract = (Config,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || config.clone())
+}
+
 #[tokio::main]
 async fn main() {
     let config = Config::init().unwrap();
@@ -195,6 +171,7 @@ async fn main() {
         .and(warp::filters::path::end())
         .and(warp::body::form())
         .and(with_rabbitmq(rabbitmq))
+        .and(with_config(config.clone()))
         .and_then(reply_download_progress);
 
     let filters = download_form.or(process_form);

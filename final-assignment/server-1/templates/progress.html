@@ -3,8 +3,6 @@
 {% block title %}Download Progress{% endblock %}
 
 {% block head %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.1.4/sockjs.min.js"></script>
 {% endblock %}
 
 {% block body %}
@@ -15,30 +13,91 @@
   }
 </style>
 <div class="col-sm-12 col-md-8 col-md-offset-2">
-<table style="max-height: unset;">
-  <caption>Download Progress ({{task_id}})</caption>
-  <thead>
-    <tr>
-      <th>URL</th>
-      <th>Download</th>
-      <th>Kompresi</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for file in files %}
-    <tr>
-      <td data-label="URL">
-        {{file}}
-      </td>
-      <td data-label="Download" id="download-{{loop.index}}">
-        0%
-      </td>
-      <td data-label="Kompresi" id="compress-{{loop.index}}">
-        0%
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <div id="time"></div>
+  <table style="max-height: unset;">
+    <caption>Download Progress ({{task_id}})</caption>
+    <thead>
+      <tr>
+        <th>URL</th>
+        <th>Download</th>
+        <th>Kompresi</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for file in files %}
+      <tr>
+        <td data-label="URL">
+          {{file}}
+        </td>
+        <td data-label="Download" id="download-{{loop.index}}">
+          0%
+        </td>
+        <td data-label="Kompresi" id="compress-{{loop.index}}">
+          0%
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
+{% endblock %}
+
+{% block script %}
+<script src="https://code.jquery.com/jquery-3.4.1.slim.min.js"
+  integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.1.4/sockjs.min.js"></script>
+<script>
+  var ws = new SockJS("{{ config.ws_url|safe}}");
+  var client = Stomp.over(ws);
+
+  // $("#result").hide();
+  var on_connect = function () {
+    id = client.subscribe("/exchange/1606862753_TOPIC/1606862753.{{task_id}}", function (m) {
+      const payload = JSON.parse(m.body);
+
+      const type = payload.type;
+      const target = $(`#${type}-${payload.id + 1}`);
+      const prev = target.html();
+
+      if (payload.total != -1) {
+        const prevProgress = parseInt(prev.substring(0, prev.length - 1), 10);
+        const currentProgress = Math.ceil(payload.progress / payload.total * 100);
+        if (currentProgress > prevProgress) {
+          target.html(`${currentProgress}%`);
+        }
+      } else {
+        const prevProgress = parseFloat(prev.split(' ')[0])
+        const currentProgress = Math.ceil(payload.progress / 1024 / 1024 * 100) / 100;
+        if (currentProgress > prevProgress) {
+          target.html(`${currentProgress} MiB`)
+        }
+      }
+    });
+
+    time_id = client.subscribe("/exchange/1606862753_TOPIC/1606862753.time", function (m) {
+      const payload = JSON.parse(m.body);
+
+      var date = new Date(payload.timestamp * 1000);
+      var hours = date.getHours();
+      var minutes = "0" + date.getMinutes();
+      var seconds = "0" + date.getSeconds();
+      var formattedTime = hours + ':' + minutes.substr(-2) + ':' + seconds.substr(-2);
+      $("#time").html(formattedTime);
+    })
+  };
+
+  var on_error = function () {
+    console.log("error");
+  };
+
+  // ohmygod why
+  client.connect(
+    "{{config.ws_namespace}}",
+    "{{config.ws_namespace}}",
+    on_connect,
+    on_error,
+    "/{{ config.ws_namespace }}"
+  );
+</script>
 {% endblock %}
