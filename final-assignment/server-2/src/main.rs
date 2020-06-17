@@ -1,17 +1,14 @@
 #[macro_use]
 extern crate envconfig_derive;
 extern crate envconfig;
-use futures_util::StreamExt;
-use reqwest;
-
-use tokio::io::AsyncWriteExt;
 
 use envconfig::Envconfig;
-use lapin::{
-    options::*, types::FieldTable, BasicProperties, Connection,
-    ConnectionProperties,
-};
+use futures_util::StreamExt;
+use lapin::{options::*, types::FieldTable, BasicProperties, Connection, ConnectionProperties};
+use regex::Regex;
+use reqwest;
 use serde::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
 use tokio::task;
 use tokio_amqp::*;
 
@@ -22,63 +19,71 @@ struct Config {
 
     #[envconfig(from = "AMQP_PREFIX", default = "1606862753")]
     pub amqp_prefix: String,
+
+    #[envconfig(from = "COMPRESSOR_ADDR", default = "http://127.0.0.1:8001")]
+    pub compressor_addr: String,
+
+    #[envconfig(from = "DOWNLOAD_DIR", default = "files")]
+    pub download_dir: String,
 }
 
-#[derive(Deserialize, Debug)]
-struct DownloadJob<'a> {
-    urls: Vec<&'a str>,
-    task_id: &'a str,
+#[derive(Deserialize, Clone)]
+struct DownloadJob {
+    urls: Vec<String>,
+    task_id: String,
 }
 
-use regex::Regex;
+struct UploadJob {
+    files: Vec<String>,
+    task_id: String,
+}
 
 #[derive(Serialize)]
-struct Progress<'a> {
+struct Progress {
     id: u8,
-    r#type: &'a str,
+    r#type: String,
     progress: u64,
     total: i64,
 }
 
-async fn report_download_progress(
-    channel: &lapin::Channel,
-    task_id: &str,
-    id: u8,
-    written: u64,
-    filesize: i64,
-) {
-    let payload = Progress {
-        id: id,
-        r#type: "download",
-        progress: written,
-        total: filesize,
-    };
-    channel.basic_publish(
-        "1606862753_TOPIC",
-        &format!("1606862753.{}", task_id),
-        BasicPublishOptions::default(),
-        serde_json::to_vec(&payload).unwrap(),
-        BasicProperties::default(),
-    ).await.unwrap();
-    println!("{} -> {}/{}", id, written, filesize);
+struct AMQP {
+    channel: lapin::Channel,
+    prefix: String,
 }
 
-async fn download_file(
-    url: &str,
-    task_id: &str,
-    id: u8,
-    dir: &str,
-    channel: &lapin::Channel,
-) -> Result<(), reqwest::Error> {
-    let filename_re = Regex::new(r#"filename="?([^";]+)"?(?:;|$)"#).unwrap();
-    let result = reqwest::get(url).await?;
-    let mut filename = "file.bin".to_owned();
+impl AMQP {
+    async fn report_progress(&self, task_id: &str, progress: &Progress) {
+        self.channel
+            .basic_publish(
+                &format!("{}_TOPIC", self.prefix),
+                &format!("{}.{}", self.prefix, task_id),
+                BasicPublishOptions::default(),
+                serde_json::to_vec(&progress).unwrap(),
+                BasicProperties::default(),
+            )
+            .await
+            .unwrap();
+    }
+}
 
+async fn download_file(url: &str, dir: &str, id: u8, task_id: &str, amqp: &AMQP) -> String {
+    let filename_re = Regex::new(r#"filename="?([^";]+)"?(?:;|$)"#).unwrap();
+
+    let result = reqwest::get(url).await.unwrap();
+
+    // getting filename
+    let mut filename = "file.bin".to_owned();
     if let Some(val) = result.headers().get(reqwest::header::CONTENT_DISPOSITION) {
         if let Some(cap) = filename_re.captures(val.to_str().unwrap()) {
             filename = cap[1].to_owned();
         }
     }
+
+    let full_name = format!("{}/file-{}_{}", dir, id, filename);
+    let fd = tokio::fs::File::create(&full_name).await.unwrap();
+    let mut writer = tokio::io::BufWriter::new(fd);
+
+    // get filesize
     let filesize = result
         .headers()
         .get(reqwest::header::CONTENT_LENGTH)
@@ -87,49 +92,56 @@ async fn download_file(
         .parse::<i64>()
         .unwrap_or(-1);
 
-    let fd = tokio::fs::File::create(format!("{}/file-{}_{}", dir, id, filename))
-        .await
-        .unwrap();
-
-    let mut writer = tokio::io::BufWriter::new(fd);
-    let mut stream = result.bytes_stream();
-
-    let mut written = 0;
     let mut last_reported = 0;
     let threshold = 100 * 1024; // report every 100KiB
+    let mut dl = Progress {
+        r#type: "download".to_owned(),
+        progress: 0,
+        total: filesize,
+        id: id,
+    };
 
+    let mut stream = result.bytes_stream();
     while let Some(item) = stream.next().await {
         let item = item.unwrap();
-        written += item.len() as u64;
-        if written - last_reported > threshold {
-            last_reported = written;
+        dl.progress += item.len() as u64;
 
-            // should not block, but okay
-            report_download_progress(channel, &task_id, id, written, filesize).await;
+        if dl.progress - last_reported > threshold {
+            last_reported = dl.progress;
+
+            // TODO: should not block, cancel pending future
+            amqp.report_progress(&task_id, &dl).await;
         }
         &writer.write_all(&item).await;
     }
 
-    if written != last_reported {
-        report_download_progress(channel, &task_id, id, written, filesize).await;
-    }
-
+    amqp.report_progress(&task_id, &dl).await;
     writer.flush().await.unwrap();
-    Ok(())
+
+    full_name
 }
 
-async fn download_files(message: DownloadJob<'_>, channel: &lapin::Channel) {
-    println!("{}", message.task_id);
-
-    let dir = format!("tmp/{}", &message.task_id);
+async fn download_files(message: &DownloadJob, download_dir: &str, amqp: &AMQP) -> Vec<String> {
+    // prepare directory
+    let dir = format!("{}/{}", download_dir, &message.task_id);
     tokio::fs::create_dir_all(&dir).await.unwrap();
 
     let mut promises = vec![];
     for (i, url) in message.urls.iter().enumerate() {
-        promises.push(download_file(&url, message.task_id, i as u8, &dir, channel))
+        promises.push(download_file(&url, &dir, i as u8, &message.task_id, amqp))
     }
+    futures::future::join_all(promises).await
+}
 
-    futures::future::join_all(promises).await;
+async fn compress_files(message: &UploadJob, url: &str) {
+    let client = reqwest::Client::new();
+    let mut form = vec![("task_id".to_owned(), &message.task_id)];
+
+    for (i, file) in message.files.iter().enumerate() {
+        let key = format!("file-{}", i);
+        form.push((key, file))
+    }
+    client.post(url).form(&form).send().await.unwrap();
 }
 
 #[tokio::main]
@@ -155,6 +167,10 @@ async fn main() {
         .unwrap();
 
     while let Some(delivery) = consumer.next().await {
+        let compress_addr = config.compressor_addr.clone();
+        let prefix = config.amqp_prefix.clone();
+        let dir = config.download_dir.clone();
+
         let download_handle = task::spawn(async move {
             let (channel, delivery) = delivery.unwrap();
 
@@ -163,12 +179,18 @@ async fn main() {
                 .await
                 .expect("ack");
 
+            let amqp = AMQP { channel, prefix };
             let message: DownloadJob = serde_json::from_slice(&delivery.data).unwrap();
-            download_files(message, &channel).await;
+            let files = download_files(&message, &dir, &amqp).await;
+            let upload_message: UploadJob = UploadJob {
+                task_id: message.task_id.to_string(),
+                files: files,
+            };
+            compress_files(&upload_message, &compress_addr).await;
         });
 
-        println!("downloading");
+        println!("downloading...");
         download_handle.await.unwrap();
-        println!("download done");
+        println!("download done.");
     }
 }
