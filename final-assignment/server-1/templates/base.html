@@ -1,5 +1,6 @@
 <!doctype html>
 <html class="no-js" lang="">
+
 <head>
   <meta charset="utf-8">
   <title>{% block title %}{% endblock %}</title>
@@ -8,10 +9,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/mini.css/3.0.1/mini-default.min.css">
 </head>
+<style>
+  html {
+    font-size: 14px;
+  }
+</style>
+
+{% block style %}
+
+{% endblock %}
+
 <body>
-    {% block body %}
-    {% endblock %}
+  {% block body %}
+  {% endblock %}
 </body>
 {% block script %}
 {% endblock %}
+
 </html>

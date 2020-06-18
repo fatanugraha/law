@@ -2,16 +2,24 @@
 
 {% block title %}Download Form{% endblock %}
 
+{%block style %}
+<style>
+  html {
+    font-size: 14px;
+  }
+</style>
+{% endblock %}
+
 {% block body %}
-<div class="col-sm-12 col-md-6 col-md-offset-3">
-  <h1>File Downloader</h1>
-  <form method="POST">
+<div class="col-sm-12 col-md-8 col-md-offset-2" style="min-height: 100vh;">
+  <h1 style="margin: 1rem 0;">File Downloader</h1>
+  <form method="POST" style="margin: auto 0">
     {% for file in files %}
     <div class="input-group fluid">
-      <input type="url" name="file-{{loop.index0}}" placeholder="URL File {{loop.index}}" value="{{file}}"/>
+      <input type="url" name="file-{{loop.index0}}" placeholder="URL File {{loop.index}}" value="{{file}}" />
     </div>
     {% endfor %}
-    <button class="primary">Download File</button>
+    <button class="primary">Download</button>
   </form>
 </div>
 {% endblock %}

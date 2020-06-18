@@ -34,7 +34,7 @@ struct DownloadJob {
 }
 
 struct UploadJob {
-    files: Vec<String>,
+    files: Vec<(String, u64)>,
     task_id: String,
 }
 
@@ -66,7 +66,7 @@ impl AMQP {
     }
 }
 
-async fn download_file(url: &str, dir: &str, id: u8, task_id: &str, amqp: &AMQP) -> String {
+async fn download_file(url: &str, dir: &str, id: u8, task_id: &str, amqp: &AMQP) -> (String, u64) {
     let filename_re = Regex::new(r#"filename="?([^";]+)"?(?:;|$)"#).unwrap();
 
     let result = reqwest::get(url).await.unwrap();
@@ -118,10 +118,14 @@ async fn download_file(url: &str, dir: &str, id: u8, task_id: &str, amqp: &AMQP)
     amqp.report_progress(&task_id, &dl).await;
     writer.flush().await.unwrap();
 
-    full_name
+    (full_name, dl.progress)
 }
 
-async fn download_files(message: &DownloadJob, download_dir: &str, amqp: &AMQP) -> Vec<String> {
+async fn download_files(
+    message: &DownloadJob,
+    download_dir: &str,
+    amqp: &AMQP,
+) -> Vec<(String, u64)> {
     // prepare directory
     let dir = format!("{}/{}", download_dir, &message.task_id);
     tokio::fs::create_dir_all(&dir).await.unwrap();
@@ -135,13 +139,16 @@ async fn download_files(message: &DownloadJob, download_dir: &str, amqp: &AMQP) 
 
 async fn compress_files(message: &UploadJob, url: &str) {
     let client = reqwest::Client::new();
-    let mut form = vec![("task_id".to_owned(), &message.task_id)];
+    let mut form = vec![("task_id".to_owned(), message.task_id.to_owned())];
 
-    for (i, file) in message.files.iter().enumerate() {
+    for (i, (file, sz)) in message.files.iter().enumerate() {
         let key = format!("file-{}", i);
-        form.push((key, file))
+        form.push((key, file.to_owned()));
+
+        let key = format!("file-{}-size", i);
+        form.push((key, sz.to_string()));
     }
-    client.post(url).form(&form).send().await.unwrap();
+    client.post(url).form(&form).send().await;
 }
 
 #[tokio::main]

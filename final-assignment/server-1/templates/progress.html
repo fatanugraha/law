@@ -11,16 +11,27 @@
   table:not(.horizontal) td:nth-child(1) {
     flex: 8 0 0%;
   }
+
+  th, td {
+    font-size: 12px;
+    text-overflow: ellipsis;
+  }
 </style>
 <div class="col-sm-12 col-md-8 col-md-offset-2">
-  <div id="time"></div>
+  <h1>Download Progress</h1>
+  <div class="row">
+    <div class="col-sm">
+      <h4>ID: {{task_id}}</h4>
+    </div>
+    <div>
+      <h4 id="time">connecting...</h4>
+    </div>
+  </div>
   <table style="max-height: unset;">
-    <caption>Download Progress ({{task_id}})</caption>
     <thead>
       <tr>
         <th>URL</th>
         <th>Download</th>
-        <th>Kompresi</th>
       </tr>
     </thead>
     <tbody>
@@ -32,13 +43,11 @@
         <td data-label="Download" id="download-{{loop.index}}">
           0%
         </td>
-        <td data-label="Kompresi" id="compress-{{loop.index}}">
-          0%
-        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  <a id="download" class="button inverse">Preparing...</a>
 </div>
 {% endblock %}
 
@@ -57,21 +66,33 @@
       const payload = JSON.parse(m.body);
 
       const type = payload.type;
-      const target = $(`#${type}-${payload.id + 1}`);
-      const prev = target.html();
+      if (type === "download") {
+        const target = $(`#download-${payload.id + 1}`);
+        const prev = target.html();
 
-      if (payload.total != -1) {
-        const prevProgress = parseInt(prev.substring(0, prev.length - 1), 10);
+        if (payload.total != -1) {
+          const prevProgress = parseInt(prev.substring(0, prev.length - 1), 10);
+          const currentProgress = Math.ceil(payload.progress / payload.total * 100);
+          if (currentProgress > prevProgress) {
+            target.html(`${currentProgress}%`);
+          }
+        } else {
+          const prevProgress = parseFloat(prev.split(' ')[0])
+          const currentProgress = Math.ceil(payload.progress / 1024 / 1024 * 100) / 100;
+          if (currentProgress > prevProgress) {
+            target.html(`${currentProgress} MiB`)
+          }
+        }
+      } else if (type === "compress") {
+        let target = $("#download");
         const currentProgress = Math.ceil(payload.progress / payload.total * 100);
-        if (currentProgress > prevProgress) {
-          target.html(`${currentProgress}%`);
-        }
+        target.html(`Compressing (${currentProgress}%)`);
       } else {
-        const prevProgress = parseFloat(prev.split(' ')[0])
-        const currentProgress = Math.ceil(payload.progress / 1024 / 1024 * 100) / 100;
-        if (currentProgress > prevProgress) {
-          target.html(`${currentProgress} MiB`)
-        }
+        let target = $("#download");
+        target.removeClass("inverse");
+        target.addClass("primary");
+        target.html("Download");
+        target.prop("href", payload.url);
       }
     });
 
@@ -83,7 +104,15 @@
       var minutes = "0" + date.getMinutes();
       var seconds = "0" + date.getSeconds();
       var formattedTime = hours + ':' + minutes.substr(-2) + ':' + seconds.substr(-2);
-      $("#time").html(formattedTime);
+
+      let year = date.getFullYear();
+      let month = date.getMonth() + 1;
+      let day = date.getDate();
+
+      var offset = date.getTimezoneOffset();
+      let timezone_h = Math.abs(offset) / 60;
+      let timezone_m = ("0" + Math.abs(offset) % 60).substr(-2);
+      $("#time").html(`${day}/${month}/${year} - ${formattedTime} UTC${offset < 0 ? '+' : '-'}${timezone_h}:${timezone_m}`);
     })
   };
 
