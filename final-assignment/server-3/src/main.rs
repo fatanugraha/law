@@ -163,7 +163,7 @@ async fn compress_svc(
         .unwrap();
     let expiry = n.as_secs() + 3600; // expired in an hour
     let url_path = format!("files/{}.zip", task_id);
-    let payload = format!("{}{} {}", expiry, url_path, config.hash_secret);
+    let payload = format!("{}/{} {}", expiry, url_path, config.hash_secret);
     let digest =
         base64::encode_config::<[u8; 16]>(md5::compute(payload).into(), base64::URL_SAFE_NO_PAD);
 
