@@ -1,0 +1,32 @@
+version: "2"
+
+services:
+  server-1:
+    build: server-1
+    environment:
+      - AMQP_ADDR=amqp://0806444524:0806444524@152.118.148.95:5672//0806444524
+      - PORT=20661
+  server-2:
+    build: server-2
+    environment:
+      - AMQP_ADDR=amqp://0806444524:0806444524@152.118.148.95:5672//0806444524
+    volumes:
+      - ./data:/www/data
+  server-3:
+    build: server-3
+    environment:
+      - AMQP_ADDR=amqp://0806444524:0806444524@152.118.148.95:5672//0806444524
+      - PORT=20662
+    volumes:
+      - ./data:/www/data
+  server-4:
+    build: server-4
+    environment:
+      - SECURE_LINK_SECRET=secret123
+      - PORT=20663
+    volumes:
+      - ./data:/www/data
+  server-5:
+    build: server-5
+    environment:
+      - AMQP_ADDR=amqp://0806444524:0806444524@152.118.148.95:5672//0806444524
