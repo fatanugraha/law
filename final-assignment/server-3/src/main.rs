@@ -6,8 +6,8 @@ use envconfig::Envconfig;
 use std::sync::Arc;
 use warp::Filter;
 mod amqp;
-use lapin::{options::*, types::FieldTable, BasicProperties, Connection, ConnectionProperties};
-use serde::{Deserialize, Serialize};
+use lapin::{options::*, BasicProperties};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::time::SystemTime;
@@ -22,7 +22,7 @@ struct Config {
     #[envconfig(from = "AMQP_PREFIX", default = "1606862753")]
     pub amqp_prefix: String,
 
-    #[envconfig(from = "PORT", default = "8001")]
+    #[envconfig(from = "PORT", default = "8000")]
     pub port: u16,
 
     #[envconfig(from = "COMPRESS_DIR", default = "compressed")]
@@ -162,7 +162,7 @@ async fn compress_svc(
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
     let expiry = n.as_secs() + 3600; // expired in an hour
-    let url_path = format!("/files/{}.zip", task_id);
+    let url_path = format!("files/{}.zip", task_id);
     let payload = format!("{}{} {}", expiry, url_path, config.hash_secret);
     let digest =
         base64::encode_config::<[u8; 16]>(md5::compute(payload).into(), base64::URL_SAFE_NO_PAD);

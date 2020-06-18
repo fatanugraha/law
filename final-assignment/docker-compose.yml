@@ -5,28 +5,53 @@ services:
     build: server-1
     environment:
       - AMQP_ADDR=amqp://0806444524:0806444524@152.118.148.95:5672//0806444524
-      - PORT=20661
+    ports:
+      - 20661:8000
+    restart: unless-stopped
   server-2:
     build: server-2
     environment:
       - AMQP_ADDR=amqp://0806444524:0806444524@152.118.148.95:5672//0806444524
+      - COMPRESSOR_ADDR=http://172.1.1.3:8000
+      - DOWNLOAD_DIR=/files
+    networks:
+      internal:
+          ipv4_address: 172.1.1.2
     volumes:
-      - ./data:/www/data
+      - ./data/files:/files
+    restart: unless-stopped
   server-3:
     build: server-3
     environment:
       - AMQP_ADDR=amqp://0806444524:0806444524@152.118.148.95:5672//0806444524
-      - PORT=20662
+      - FILE_SERVER_HOST=http://localhost:20663
+      - HASH_SECRET=omega2016
+      - COMPRESS_DIR=/compressed
+    networks:
+      internal:
+          ipv4_address: 172.1.1.3
     volumes:
-      - ./data:/www/data
+      - ./data/compressed:/compressed
+      - ./data/files:/files
+    restart: unless-stopped
   server-4:
     build: server-4
     environment:
-      - SECURE_LINK_SECRET=secret123
-      - PORT=20663
+      - SECURE_LINK_SECRET=omega2016
     volumes:
-      - ./data:/www/data
+      - ./data/compressed:/www/data
+    ports:
+      - 20663:80
+    restart: unless-stopped
   server-5:
     build: server-5
     environment:
       - AMQP_ADDR=amqp://0806444524:0806444524@152.118.148.95:5672//0806444524
+    restart: unless-stopped
+
+networks:
+  internal:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.1.0.0/16

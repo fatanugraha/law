@@ -1,5 +1,5 @@
 # select build image
-FROM rust:1.40 as build
+FROM rust:1.43 as build
 
 # create a new empty shell project
 RUN USER=root cargo new --bin app
@@ -23,7 +23,7 @@ RUN cargo build --release
 # our final base
 FROM debian:buster-slim
 
-RUN apt-get update && apt-get install -y libssl1.1
+RUN apt-get update && apt-get install -y libssl1.1 openssl ca-certificates
 # copy the build artifact from the build stage
 COPY --from=build /app/target/release/server-2 .
 
